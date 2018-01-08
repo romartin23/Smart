@@ -1,0 +1,52 @@
+//created on: Dec 28, 2017
+package rules
+
+import com.stratio.datacentric.smart.knowledge.concepts.service.ServiceConcept;
+import com.stratio.datacentric.smart.knowledge.concepts.service.ServiceParameter;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.ServiceConfiguration;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.ServiceConfigurationParameter;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.GlobalParameter;
+import com.springjpa.drools.model.Element;
+
+import java.util.Iterator;
+
+import java.util.Map;
+
+
+
+rule "New Service"
+    when
+        $marathonTask: ServiceConcept( $semanticHash : semanticHash, state == Element.INITIAL_STATE, $serviceConfigurationId : serviceConfigurationId  )
+        not (exists (ServiceConcept(semanticHash == $semanticHash, state == Element.FINAL_STATE)))
+    then
+    	$marathonTask.setState(Element.FINAL_STATE);
+    	if ($marathonTask.getEnv() != null) {
+	    	Map<String, String> elements = $marathonTask.getEnv();
+	    	Iterator<String> keys =
+	    		elements.keySet().iterator();
+	    	while (keys.hasNext()) {
+	    		String key = keys.next();
+	    		ServiceParameter serviceParameter = 
+	    			new ServiceParameter();
+	    		serviceParameter.setKey(key);
+	    		serviceParameter.setDefaultValue(elements.get(key));
+	    		serviceParameter.setServiceConcept($marathonTask);
+	    		serviceParameter.setState(Element.FINAL_STATE);
+	    		insert(serviceParameter);
+	    	}
+    	}
+    	update($marathonTask);
+        System.out.println($marathonTask.toString());
+	end
+	
+rule "Retract Service"
+    when
+        $marathonTask: ServiceConcept( $semanticHash : semanticHash, state == Element.INITIAL_STATE, $serviceConfigurationId : serviceConfigurationId  )
+        (exists (ServiceConcept(semanticHash == $semanticHash, state == Element.FINAL_STATE)))
+    then
+    	retract($marathonTask);
+	end
+	
+query "services" ()
+	services : ServiceConcept()
+end

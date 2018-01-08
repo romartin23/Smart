@@ -1,0 +1,79 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+
+
+//declare any global variables here
+
+
+import com.indra.virtualarchitecture.recommendation.Recommendation;
+import com.indra.virtualarchitecture.recommendation.RecommendationResponse;
+import com.indra.virtualarchitecture.recommendation.RecommendationCts;
+
+import com.indra.virtualarchitecture.context.ContextElement;
+
+import com.indra.virtualarchitecture.model.Element;
+import com.indra.virtualarchitecture.model.ElementCts;
+import com.indra.virtualarchitecture.model.general.Person;
+import com.indra.virtualarchitecture.model.general.PersonCts;
+import com.indra.virtualarchitecture.IdFactory;
+
+
+
+rule "create recommendation"
+	salience 1000 
+    when
+        recommendation : Recommendation(actualState==Element.INITIAL_STATE)
+        idFactory : IdFactory() 
+    then
+    	recommendation.setId(idFactory.next("Recommendation"));
+    	recommendation.setActualState(RecommendationCts.RECOMMENDATION_PROCESS);
+    	update(recommendation);
+end
+
+rule "tourism recommendation"
+	salience 500 
+    when
+        recommendation : Recommendation(
+        	actualState==RecommendationCts.RECOMMENDATION_PROCESS, $personRecommendation : person)
+        person : Person(
+        	id==$personRecommendation.id, codigoTipoViaje == PersonCts.TOURISM_TRAVEL, 
+        	codigoTipoActividad == PersonCts.CULTURAL_ACTIVITY) 
+    then
+    	RecommendationResponse response = new RecommendationResponse();
+    	
+    	ContextElement contextElement = new ContextElement();
+    	contextElement.setName("Ejemplo1");
+    	contextElement.setValue("Ejemplo1");
+    	
+    	
+    	response.setRecommendation(recommendation);
+    	response.setContextElement(contextElement);
+    	insert(response);
+    	
+    	RecommendationResponse response2 = new RecommendationResponse();
+    	
+    	ContextElement contextElement2 = new ContextElement();
+    	contextElement2.setName("Ejemplo2");
+    	contextElement2.setValue("Ejemplo2");
+    	
+    	
+    	response2.setRecommendation(recommendation);
+    	response2.setContextElement(contextElement2);
+    	insert(response2);
+end
+
+rule "delete recommendation"
+	salience -1 
+    when
+        recommendation : Recommendation()
+    then
+    	retract(recommendation);
+end
+
+
+query "recommendation_response" (String $id)
+	recommendation_response : RecommendationResponse(recommendation.id==$id)
+end

@@ -1,0 +1,81 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.MergeUpdate
+import com.indra.virtualarchitecture.model.ElementCts
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.Import
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.type.TypeCts
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import org.drools.QueryResults;
+import org.drools.QueryResult;
+import com.indra.virtualarchitecture.merge.Merges;
+import com.indra.virtualarchitecture.model.basedatos.InverseDataBase;
+import com.indra.virtualarchitecture.model.basedatos.InverseDataBaseCts;
+import com.indra.virtualarchitecture.model.eclipse.EclipseConfiguration;
+import com.indra.virtualarchitecture.model.eclipse.EclipseConfigurationCts;
+
+rule "project eclipse configuration"
+    when
+        $eclipseConfiguration: EclipseConfiguration($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Element.INITIAL_STATE)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"perform eclipse");
+		$eclipseConfiguration.setActualState(EclipseConfigurationCts.ROO_ECLIPSE_CONFIGURATION_CREATED);
+		update($eclipseConfiguration);
+		insert(rooCommand); 
+end
+
+
+
+rule "eclipse configuration action" 
+    when
+        $eclipseConfiguration: EclipseConfiguration($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == EclipseConfigurationCts.ROO_ECLIPSE_CONFIGURATION_CREATED)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"extjs configure eclipse");
+		$eclipseConfiguration.setActualState(EclipseConfiguration.ECLIPSE_CONFIGURATED_STATE);
+		update($eclipseConfiguration);
+		insert(rooCommand); 
+end
+
+
+
+rule "project eclipse import"
+    when
+        $eclipseConfiguration: EclipseConfiguration($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == EclipseConfiguration.ECLIPSE_CONFIGURATED_STATE)
+    then
+    	Project project = $eclipseConfiguration.getProject();
+    	Merges.importEclipseProject(project);
+		$eclipseConfiguration.setActualState(EclipseConfigurationCts.ROO_ECLIPSE_IMPORT_DONE);
+		update($eclipseConfiguration);
+end
+
+rule "delete eclipse configuration"
+    when
+        $eclipseConfiguration: EclipseConfiguration(actualState == Element.FINAL_STATE)
+    then
+		retract($eclipseConfiguration);
+end

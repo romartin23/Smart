@@ -1,0 +1,124 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+
+
+//declare any global variables here
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import com.indra.virtualarchitecture.alert.AlertCts;
+import com.indra.virtualarchitecture.alerts.Alerts;
+
+
+
+rule "create entity attribute alert"
+	salience -2000
+    when
+        entity: Entity($globalIdentifier : globalIdentifier, actualState == Element.FINAL_STATE) 
+        not (exists (Attribute(
+			entity.globalIdentifier==$globalIdentifier, name != 'id', name != 'version')))
+		not (exists (Alert (code == Alert.CODE_NOT_EXIST_ATTRIBUTES, element.globalIdentifier == $globalIdentifier))) 
+    then
+		Alert alert = new Alert();
+		alert.setElement(entity);
+		alert.setType(Alert.ALERT_INFO);
+		alert.setCode(Alert.CODE_NOT_EXIST_ATTRIBUTES);
+		alert.setDescription(Alert.DESCRIPTION_NOT_EXIST_ATTRIBUTES);
+		alert.setActualState(Element.FINAL_STATE);
+		insert(alert); 
+end
+
+rule "delete entity attribute alert"
+	salience -2000
+    when
+        alert : Alert(code==Alert.CODE_NOT_EXIST_ATTRIBUTES, sent==true, closed==false, $entityGlobalIdentifier : element.globalIdentifier)
+        exists (Attribute(
+			entity.globalIdentifier==$entityGlobalIdentifier, name != 'id', name != 'version'))
+    then
+		alert.setClosed(true);
+		update(alert); 
+		
+end
+
+rule "create attribute bic alert"
+	salience -2000
+    when
+        $attribute: Attribute($globalIdentifier : globalIdentifier, actualState == Element.FINAL_STATE, entityAssociation == null, $name : name) 
+		not (exists (Alert (code == AlertCts.CODE_BIC_WITHOUT_ASSOCIATION, element.globalIdentifier == $globalIdentifier))) 
+		eval($name.toLowerCase().startsWith("bic"))
+    then
+		Alert alert = new Alert();
+		alert.setElement($attribute);
+		alert.setType(Alert.ALERT_INFO);
+		alert.setCode(AlertCts.CODE_BIC_WITHOUT_ASSOCIATION);
+		alert.setDescription(AlertCts.DESCRIPTION_BIC_WITHOUT_ASSOCIATION);
+		alert.setActualState(Element.FINAL_STATE);
+		insert(alert); 
+end
+
+rule "delete attribute bic alert"
+	salience -2000
+    when
+        alert : Alert(code == AlertCts.CODE_BIC_WITHOUT_ASSOCIATION, sent==true, closed==false, $attributeGlobalIdentifier : element.globalIdentifier)
+        Attribute(globalIdentifier==$attributeGlobalIdentifier, entityAssociation != null)
+    then
+		alert.setClosed(true);
+		update(alert); 
+		
+end
+
+rule "send alert created"
+	when
+        alert : Alert(sent==false, closed==false)
+    then
+    	Alerts.sendAlertCreated(alert);
+		alert.setSent(true);
+		update(alert);
+
+end
+
+rule "send alert removed"
+	when
+        alert : Alert(sent==true, closed==true)
+    then
+    	Alerts.sendAlertRemoved(alert);
+		retract(alert); 
+
+end
+
+rule "delete alert"
+	salience -2000
+    when
+        alert : Alert($globalIdentifier : element.globalIdentifier)
+        not (exists (Element(globalIdentifier==$globalIdentifier)))
+    then
+		retract(alert); 
+		
+end
+
+query "elementAlerts" (String $elementGlobalIdentifier)
+	elementAlerts : Alert(element.globalIdentifier==$elementGlobalIdentifier)
+end

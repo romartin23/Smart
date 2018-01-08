@@ -1,0 +1,313 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+
+
+//declare any global variables here
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.task.GenericTask 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.ElementCts 
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+
+
+
+rule "create element"
+	salience 1000 
+    when
+        action : Action(id == null, codeAction==Action.CREATE_ACTION)
+        idFactory : IdFactory() 
+    then
+    	action.setId(idFactory.next("Action"));
+    	Element element = action.getElement(); 
+    	element.setId(idFactory.next(element.getType()));
+    	element.setIdAction(action.getId());
+    	update(action);
+    	insert(element);
+    	Response response = new Response();
+    	response.setIdAction(action.getId()); 
+    	insert (response);  
+
+end
+
+rule "update element"
+	salience 1000 
+    when
+        action : Action(id == null, codeAction==Action.UPDATE_ACTION)
+        idFactory : IdFactory()
+    then
+    	action.setId(idFactory.next("Action"));
+    	Element element = action.getElement(); 
+    	
+    	Response response = new Response();
+    	response.setIdAction(action.getId()); 
+    	response.setCorrect(true);
+    	insert (response); 
+    	update(element); 
+    	retract(action);
+    	
+end
+
+rule "command roo element error"
+	salience 1000
+    when
+        element: Element($globalIdentifier:globalIdentifier, $idAction:idAction, actualState != ElementCts.ERROR_STATE)
+        rooCommand: RooCommand(elementGlobalIdentifier==$globalIdentifier, executionCorrect==false, $executionResult:executionResult)
+    then
+    	Error error = new Error();
+        error.setIdAction($idAction);
+        error.setErrorDescription(
+        	"Se ha producido un error al ejecutar el comando iDynamics: "+rooCommand.getCommand()+
+        	". Mire en la consola de iDynamics el posible error que se ha producido");
+        insert(error);
+        element.setActualState(ElementCts.ERROR_STATE);
+        update(element);
+end 
+
+
+
+
+
+rule "validate unique element"
+    when
+    	action : Action($idAction: id)
+        element : Element($type : type, $uniqueIdentifier : uniqueIdentifier, valid == true, $id : id) 
+        element2 : Element(id != $id, idAction == $idAction, type == $type, uniqueIdentifier == $uniqueIdentifier, valid == false)
+        
+    then
+        Error error = new Error();
+        error.setIdAction(action.getId());
+        error.setErrorDescription(
+        	"No se pueden crear dos elementos con las mismas caracteristicas");
+        insert(error);
+
+end
+
+rule "assign error to response"
+    when
+        error : Error()
+        response : Response()
+    then
+    	response.addError(error);
+    	update(response);
+        retract(error);
+
+end
+rule "retract rooCommand"
+	salience -1000
+    when
+        rooCommand : RooCommand()
+    then
+		retract(rooCommand);
+
+end 
+rule "finish validation element action create"
+	salience -1000
+    when
+        action : Action($id:id, codeAction==Action.CREATE_ACTION)
+        response : Response(idAction==$id, hasErrors == false)
+        element : Element(idAction==$id, valid == false)
+    then
+    	element.setValid(true); 
+    	element.setActualState(Element.INITIAL_STATE);
+    	update(element);
+end
+
+rule "finish action create with error"
+	salience -1000
+    when
+        action : Action($id:id, codeAction==Action.CREATE_ACTION)
+        response : Response(idAction==$id, hasErrors == true)
+        element : Element(idAction==$id)
+    then
+    	response.setCorrect(false);
+        retract(element);
+        retract(action);
+        update(response);
+end
+
+rule "finish action create ok"
+	salience -1000
+    when
+        action : Action($id:id, codeAction==Action.CREATE_ACTION)
+        response : Response(idAction==$id, hasErrors == false)
+        element : Element(idAction==$id, valid == true)
+    then
+     	retract(action);
+    	element.setActualState(Element.FINAL_STATE);
+    	update(element);
+    	response.setCorrect(true);
+    	update(response);
+       
+end
+
+rule "remove generic task"
+	salience -2000
+    when
+        genericTask : GenericTask(actualState==Element.FINAL_STATE)
+    then
+     	retract(genericTask);
+end
+
+query "actions" 
+	actions : Action()
+end
+
+query "response" 
+	response : Response()
+end
+
+query "allElements" ()
+	allElements : Element()
+end
+
+query "elements" ()
+	elements : Element(actualState == Element.FINAL_STATE)
+end
+
+query "elementsMerge" ()
+	elementsMerge : Element(actualState == ElementCts.MERGE_STATE)
+end
+
+query "elementByGlobalIdentifier" (String $globalIdentifier)
+	elementByGlobalIdentifier : Element(globalIdentifier==$globalIdentifier)
+end
+
+query "project" 
+	project : Project()
+end
+
+query "courses" 
+	courses : Course()
+end
+
+query "pendingCourses" (String  $personIdentifier)
+	pendingCourses : Course($courseid: uniqueIdentifier)
+	not (exists (CourseExecution(course.uniqueIdentifier==$courseid, person.globalIdentifier==$personIdentifier)))
+end
+
+query "inExecutionCourses" (String  $personIdentifier)
+	inExecutionCourses : Course($courseid: uniqueIdentifier)
+	exists (CourseExecution(
+		course.uniqueIdentifier==$courseid, 
+		person.globalIdentifier==$personIdentifier,
+		finished==false))
+end
+
+query "courseExecution" (String  $courseIdentifier, String  $personIdentifier)
+	courseExecution: CourseExecution(
+		course.globalIdentifier==$courseIdentifier, 
+		person.globalIdentifier==$personIdentifier)
+end
+
+query "course" (String  $courseIdentifier)
+	course: Course(
+		globalIdentifier==$courseIdentifier)
+end
+
+
+query "synonyms" 
+	synonyms : Synonym()
+end
+
+query "association" 
+	association : Association()
+end
+
+query "projectByName" (String $name) 
+	projectByName : Project(name==$name)
+end
+
+query "entityByProject" (String $globalIdentifier)
+	entityByProject : Entity(project.globalIdentifier==$globalIdentifier)
+end
+
+query "attributesByEntity" (String $globalIdentifier)
+	attributesByEntity : Attribute(entity.globalIdentifier==$globalIdentifier, actualState == Element.FINAL_STATE)
+end
+
+query "associationsByEntity" (String $globalIdentifier)
+	associationsByEntity : EntityAssociation(originEntity.globalIdentifier==$globalIdentifier,actualState == Element.FINAL_STATE)
+end
+query "crudByEntity" (String $globalIdentifier)
+	crudByEntity : CrudEntity(entity.globalIdentifier==$globalIdentifier,actualState == Element.FINAL_STATE)
+end
+
+query "alertsByElement" (String $globalIdentifier)
+	alertsByElement : Alert(element.globalIdentifier==$globalIdentifier,actualState == Element.FINAL_STATE)
+end
+
+
+query "base_de_datos_configuration" 
+	base_de_datos_configuration : DataBaseConfiguration()
+end
+query "crudEntity" (String $entityGlobalIdentifier)
+	crudEntity : CrudEntity(entity.globalIdentifier==$entityGlobalIdentifier)
+end
+
+query "dataBase" 
+	dataBase : DataBase()
+end
+
+query "provider" 
+	provider : Provider()
+end
+
+query "workspace" 
+	workspace : Workspace()
+end
+
+query "genericType" 
+	genericType : GenericType()
+end
+
+query "type" 
+	type : Type()
+end
+
+query "typeByName" (String $name)
+	typeByName : Type(name.startsWith($name))
+end
+
+query "typeByGenericType" (String $genericType) 
+	typeByGenericType : Type(genericType.name == $genericType)
+end
+
+query "person" (String $name) 
+	person : Person() 
+	eval(person.matchName($name))
+end
+
+query "persona_login" (String $login) 
+	persona_login : Person(login == $login)
+end
+
+query "entity" () 
+	entity : Entity()
+end
+
+query "genericTask" () 
+	genericTask : GenericTask()
+end

@@ -1,0 +1,348 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.MergeUpdate
+import com.indra.virtualarchitecture.model.ElementCts
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.ProjectCts
+import com.indra.virtualarchitecture.model.project.Import
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.type.TypeCts
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import org.drools.QueryResults;
+import org.drools.QueryResult;
+import com.indra.virtualarchitecture.merge.Merges;
+
+
+rule "import project"
+    when
+        $importProject: Import($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Element.INITIAL_STATE)
+    then
+    	Project $project =
+			CommandExecution.importProject($importProject.getPath());
+		$project.setActualState(ElementCts.MERGE_STATE);
+		insert($project);
+end
+
+rule "delete import project"
+    when
+        $importProject: Import(actualState == Element.FINAL_STATE)
+    then
+		retract($importProject); 
+end
+
+rule "project create path"
+    when
+        project: Project($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Project.INITIAL_STATE)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"create project path "+project.getPath());
+		project.setActualState(Project.PATH_CREATED_STATE);
+		update(project);
+		CommandExecution.setProjectRoo(project);
+		insert(rooCommand);
+end
+
+rule "project create roo project"
+    when
+        project: Project($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Project.PATH_CREATED_STATE)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"project --topLevelPackage "+project.getNombrePaquete()+" --projectName "+project.getName());
+		project.setActualState(Project.ROO_PROJECT_CREATED_STATE);
+		update(project);
+		insert(rooCommand);
+end
+
+
+
+rule "project config presentation layer dojo"
+    when
+        project: Project(
+        	$globalIdentifier:globalIdentifier, 
+        	$idAction:idAction, valid == true,  
+        	actualState == Project.ROO_PROJECT_CREATED_STATE,
+        	project.capaPresentacion == ProjectCts.DOJO)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"web mvc setup");
+		project.setActualState(Project.ROO_PRESENTATION_CREATED_STATE);
+		update(project);
+		insert(rooCommand);
+		rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"web mvc language --code es");
+		insert(rooCommand);	
+		
+end
+
+rule "project config presentation layer extjs"
+    when
+        project: Project(
+        	$globalIdentifier:globalIdentifier, 
+        	$idAction:idAction, valid == true,  
+        	actualState == Project.ROO_PROJECT_CREATED_STATE,
+        	project.capaPresentacion == ProjectCts.ExtJs)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"web mvc json setup");
+		insert(rooCommand);
+		rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"extjs setup");
+		insert(rooCommand);
+		project.setActualState(Project.ROO_PRESENTATION_CREATED_STATE);
+		update(project);
+		
+end
+
+rule "project config data base"
+    when
+        project: Project($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Project.ROO_PRESENTATION_CREATED_STATE, provider != null)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"persistence setup --provider "+ project.getProvider().getName()+
+				" --database " + project.getDataBaseConfiguration().getDataBase().getName()+
+				" --databaseName "+ project.getDataBaseConfiguration().getDataBaseName()+
+				" --userName "+ project.getDataBaseConfiguration().getUser());
+				
+		project.setActualState(Project.ROO_DATA_BASE_CREATED_STATE);
+		update(project);
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"idynamics integration setup");
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"idynamics expose webservices setup");
+		insert(rooCommand);
+end
+
+rule "project config data base without provider"
+    when
+        project: Project($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Project.ROO_PRESENTATION_CREATED_STATE, provider == null)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"persistence setup --provider HIBERNATE"+
+				" --database " + project.getDataBaseConfiguration().getDataBase().getName()+
+				" --databaseName "+ project.getDataBaseConfiguration().getDataBaseName()+
+				" --userName "+ project.getDataBaseConfiguration().getUser());
+				
+		project.setActualState(Project.ROO_DATA_BASE_CREATED_STATE);
+		update(project);
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"idynamics integration setup");
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"idynamics expose webservices setup");
+		insert(rooCommand);
+end
+
+rule "project config audit and log"
+    when
+        project: Project($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Project.ROO_DATA_BASE_CREATED_STATE)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"icore4java setup");
+		project.setActualState(Project.ROO_AUDIT_LOG_CREATED_STATE);
+		update(project);
+		insert(rooCommand); 
+end
+
+rule "merge project"
+    when
+        $project: Project($name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        $projectExist: Project(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) 
+    then
+        
+        MergeUpdate $mergeUpdate = new MergeUpdate($projectExist);
+        $mergeUpdate.setState(MergeUpdate.WITHOUT_CHANGES); 
+        insert($mergeUpdate);
+end
+
+rule "create merge project" 
+	salience 0
+    when
+        $project: Project($name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        not (exists ( Project(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) ))
+        idFactory : IdFactory()
+    then
+    	$project.setId(idFactory.next($project.getType()));
+    	$project.setActualState(Element.FINAL_STATE);
+    	$project.setValid(true);
+    	update($project);
+    	Merges.addElement($project);
+    	MergeUpdate $mergeUpdate = new MergeUpdate($project);
+        $mergeUpdate.setState(MergeUpdate.WITH_CHANGES); 
+        insert($mergeUpdate);
+end
+
+rule "merge change in presentation"
+	salience 0
+    when
+        $project: Project($capaPresentacion : capaPresentacion, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        $projectExist: Project(globalIdentifier == $globalIdentifier, capaPresentacion != $capaPresentacion, actualState == Element.FINAL_STATE) 
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+    then
+    	$projectExist.setCapaPresentacion($capaPresentacion);
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($projectExist);
+    	update($mergeUpdate);
+end
+
+rule "merge change in workspace"
+	salience 0
+    when
+        $project: Project($workspace : workspace, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        $projectExist: Project(globalIdentifier == $globalIdentifier, workspace.path != $workspace.path, actualState == Element.FINAL_STATE) 
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end
+
+rule "merge change in provider"
+	salience 0
+    when
+        $project: Project($provider : provider, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+       	$projectExist: Project(globalIdentifier == $globalIdentifier, provider.name != $provider.name, actualState == Element.FINAL_STATE) 
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end
+
+rule "merge change in dataBaseConfiguration"
+	salience 0
+    when
+        $project: Project($dataBaseConfiguration : dataBaseConfiguration, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        (	
+        	$projectExist: Project(globalIdentifier == $globalIdentifier, dataBaseConfiguration.dataBaseName != $dataBaseConfiguration.dataBaseName, actualState == Element.FINAL_STATE) 
+         or
+         	$projectExist: Project(globalIdentifier == $globalIdentifier, dataBaseConfiguration.user != $dataBaseConfiguration.user, actualState == Element.FINAL_STATE)
+        )
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end
+
+rule "delete merge project"
+	salience -1
+    when
+        $project: Project(actualState == ElementCts.MERGE_STATE)
+    then
+    	retract($project);
+end
+
+rule "merge create workspace"
+	salience -3
+    when
+        $project: Project($workspace : workspace, $globalIdentifier : globalIdentifier, actualState == Element.FINAL_STATE)
+       	not (exists ( Workspace(
+       		path == $workspace.path, actualState == Element.FINAL_STATE ) ))
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+       	idFactory : IdFactory()
+    then
+    	$workspace.setId(idFactory.next($workspace.getType()));
+    	$workspace.setValid(true);
+    	$workspace.setActualState(Element.FINAL_STATE);
+    	insert($workspace);
+end
+
+rule "merge create provider"
+	salience -3
+    when
+        $project: Project($provider : Provider, $globalIdentifier : globalIdentifier, actualState == Element.FINAL_STATE)
+       	not (exists ( Provider(
+       		name == $provider.name, actualState == Element.FINAL_STATE ) ))
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+       	idFactory : IdFactory()
+    then
+    	$provider.setId(idFactory.next($provider.getType()));
+    	$provider.setValid(true);
+    	$provider.setActualState(Element.FINAL_STATE);
+    	insert($provider);
+end
+
+rule "merge create dataBaseConfiguration"
+	salience -3
+    when
+        $project: Project($dataBaseConfiguration : DataBaseConfiguration, $globalIdentifier : globalIdentifier, actualState == Element.FINAL_STATE)
+       	not (exists ( DataBaseConfiguration(
+       		$dataBaseConfiguration.dataBaseName == dataBaseName, $dataBaseConfiguration.user == user, actualState == Element.FINAL_STATE ) ))
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+       	idFactory : IdFactory()
+    then
+    	$dataBaseConfiguration.setId(idFactory.next($dataBaseConfiguration.getType()));
+    	$dataBaseConfiguration.setValid(true);
+    	$dataBaseConfiguration.setActualState(Element.FINAL_STATE);
+    	insert($dataBaseConfiguration);
+end
+
+rule "merge associate workspace"
+	salience -4
+    when
+        $project: Project($workspace : workspace, $globalIdentifier : globalIdentifier)
+       	$workspaceExist: Workspace(
+       		path == $workspace.path, actualState == Element.FINAL_STATE ) 
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+    then
+    	$project.setWorkspace($workspaceExist);
+end
+
+rule "merge associate provider"
+	salience -4
+    when
+        $project: Project($provider : provider, $globalIdentifier : globalIdentifier)
+       	$providerExist: Provider(
+       		name == $providerExist.name, actualState == Element.FINAL_STATE ) 
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+    then
+    	$project.setProvider($providerExist);
+end
+
+rule "merge associate dataBaseConfiguration"
+	salience -4
+    when
+        $project: Project($dataBaseConfiguration : dataBaseConfiguration, $globalIdentifier : globalIdentifier)
+       	$dataBaseConfigurationExist: DataBaseConfiguration(
+       		$dataBaseConfiguration.dataBaseName == dataBaseName, $dataBaseConfiguration.user == user, actualState == Element.FINAL_STATE )  
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $project.globalIdentifier)
+    then
+    	$project.setDataBaseConfiguration($dataBaseConfigurationExist);
+end
+

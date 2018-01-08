@@ -1,0 +1,341 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+
+
+//declare any global variables here
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.MergeUpdate
+import com.indra.virtualarchitecture.model.ElementCts
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.service.Service
+import com.indra.virtualarchitecture.model.service.ServiceCts
+import com.indra.virtualarchitecture.model.service.ServiceMethod
+import com.indra.virtualarchitecture.model.service.ServiceDependence
+import com.indra.virtualarchitecture.model.service.ServiceExposition
+import com.indra.virtualarchitecture.model.service.CreateServiceAction
+import com.indra.virtualarchitecture.model.service.ExposeServiceAction
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.type.TypeCts
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import org.drools.QueryResults;
+import org.drools.QueryResult;
+import com.indra.virtualarchitecture.merge.Merges;
+
+rule "create persistence service"  
+    when
+        $createServiceAction: CreateServiceAction(
+        	$globalIdentifier:globalIdentifier, 
+        	$entity:entity,
+        	valid == true,  
+        	serviceType == ServiceCts.PERSISTENCE_TYPE,
+        	actualState == Element.INITIAL_STATE)
+    then
+    	RooCommand rooCommand=
+    		CommandExecution.executeRooCommand( 
+				$globalIdentifier,
+				"service --interface ~.srv."+$createServiceAction.getName()+" --entity ~.domain."+$entity.getName());
+		insert(rooCommand); 
+end
+
+rule "delete persistence service action"
+    when
+        $createServiceAction: CreateServiceAction(actualState == Element.FINAL_STATE)
+    then
+		retract($createServiceAction);
+end
+
+rule "expose service"  
+    when
+        $exposeServiceAction: ExposeServiceAction(
+        	$globalIdentifier:globalIdentifier, 
+        	valid == true,  
+        	exposeType == ServiceCts.EXPOSE_WEBSERVICE,
+        	actualState == Element.INITIAL_STATE)
+    then
+    	RooCommand rooCommand=
+    		CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"idynamics expose webservices add --class ~.srv."+$exposeServiceAction.getService().getImplemantionName());
+		insert(rooCommand); 
+end
+
+rule "delete expose service"
+    when
+        $exposeServiceAction: ExposeServiceAction(actualState == Element.FINAL_STATE)
+    then
+		retract($exposeServiceAction);
+end
+
+rule "merge service"
+    when
+        $service: Service($name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        $serviceExist: Service(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) 
+    then 
+        
+        MergeUpdate $mergeUpdate = new MergeUpdate($serviceExist);
+        $mergeUpdate.setState(MergeUpdate.WITHOUT_CHANGES); 
+        insert($mergeUpdate);
+end
+
+rule "create merge service" 
+	salience 0
+    when
+        $service: Service($name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        not (exists ( Service(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) ))
+        $project: Project(globalIdentifier == $service.getProject().getGlobalIdentifier()) 
+        idFactory : IdFactory()
+    then
+    	$service.setId(idFactory.next($service.getType()));
+    	$service.setProject($project);
+    	$service.setActualState(Element.FINAL_STATE);
+    	update($service);
+    	MergeUpdate $mergeUpdate = new MergeUpdate($service);
+        $mergeUpdate.setState(MergeUpdate.WITH_CHANGES); 
+        insert($mergeUpdate);
+end
+
+rule "merge serviceMethod"
+	salience 0
+    when
+        $serviceMethod: ServiceMethod(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == ElementCts.MERGE_STATE) 
+       	not (exists ( ServiceMethod(
+       		globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE ) ))
+        $service: Service(globalIdentifier == $serviceMethod.service.globalIdentifier, actualState == Element.FINAL_STATE) 	
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end
+
+rule "merge serviceMethod2"
+	salience 0
+    when
+    	$serviceMethod: ServiceMethod(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == Element.FINAL_STATE) 
+       	not (exists ( ServiceMethod(
+       		globalIdentifier == $globalIdentifier, actualState == ElementCts.MERGE_STATE ) ))
+        $service: Service(globalIdentifier == $serviceMethod.service.globalIdentifier, actualState == Element.FINAL_STATE) 
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end 
+
+ rule "merge serviceDependence"
+	salience 0
+    when
+        $serviceDependence: ServiceDependence(
+        	$globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        not ( exists (ServiceDependence(
+        	globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) ))
+        $service: Service (globalIdentifier==$serviceDependence.service.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        $element: Element (globalIdentifier==$serviceDependence.dependence.globalIdentifier, actualState == Element.FINAL_STATE)
+        idFactory : IdFactory()	
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end  
+
+ rule "merge serviceDependence 2"
+	salience 0
+    when
+         $serviceDependence: ServiceDependence(
+        	$globalIdentifier : globalIdentifier, actualState == Element.FINAL_STATE)
+         not ( exists (ServiceDependence(
+        	globalIdentifier == $globalIdentifier, actualState == actualState == ElementCts.MERGE_STATE) ))
+        $service: Service (globalIdentifier==$serviceDependence.service.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        $element: Element (globalIdentifier==$serviceDependence.dependence.globalIdentifier, actualState == Element.FINAL_STATE)
+        idFactory : IdFactory()	
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end 
+
+rule "merge exposition"
+	salience 0
+    when
+        $serviceExposition: ServiceExposition(
+        	$globalIdentifier : globalIdentifier, 
+        	actualState == ElementCts.MERGE_STATE) 
+       	not (exists ( ServiceExposition(
+       		globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE ) ))
+        $service: Service(globalIdentifier == $serviceExposition.service.globalIdentifier, actualState == Element.FINAL_STATE) 	
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end
+
+rule "merge exposition2"
+	salience 0
+    when
+    	$serviceExposition: ServiceExposition(
+        	$globalIdentifier : globalIdentifier, 
+        	actualState == Element.FINAL_STATE) 
+       	not (exists ( ServiceExposition(
+       		globalIdentifier == $globalIdentifier, actualState == ElementCts.MERGE_STATE ) ))
+        $service: Service(globalIdentifier == $serviceExposition.service.globalIdentifier, actualState == Element.FINAL_STATE) 
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end 
+
+rule "merge update service"
+	salience -3
+    when
+        $mergeUpdate: MergeUpdate($element : element, state == MergeUpdate.WITH_CHANGES)
+        $service: Service($globalIdentifier : globalIdentifier, globalIdentifier == $element.getGlobalIdentifier(), actualState == ElementCts.MERGE_STATE)
+    then
+    	QueryResults results = drools.getWorkingMemory().getQueryResults("serviceMethodByService", $globalIdentifier);
+        for ( QueryResult queryResult : results ) {
+                ServiceMethod $serviceMethod = ( ServiceMethod ) queryResult.get( 0 );
+                retract($serviceMethod);
+        }
+        
+        results = drools.getWorkingMemory().getQueryResults("serviceDependenceByService", $globalIdentifier);
+        for ( QueryResult queryResult : results ) {
+                ServiceDependence $serviceDependence = ( ServiceDependence ) queryResult.get( 0 );
+                retract($serviceDependence);
+        }
+        
+        results = drools.getWorkingMemory().getQueryResults("expositionByService", $globalIdentifier);
+        for ( QueryResult queryResult : results ) {
+                ServiceExposition $serviceExposition = ( ServiceExposition ) queryResult.get( 0 );
+                retract($serviceExposition);
+        }
+        retract($service); 
+end
+
+rule "merge service delete"
+	salience -3
+    when
+        $mergeUpdate: MergeUpdate($element : element, state == MergeUpdate.WITHOUT_CHANGES)
+        $service: Service($globalIdentifier : globalIdentifier, globalIdentifier == $element.getGlobalIdentifier(), actualState == ElementCts.MERGE_STATE)
+    then
+        retract($service); 
+end
+
+
+rule "merge update serviceMethod with changes"
+	salience -4
+    when
+        $serviceMethod: ServiceMethod(
+        	$globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        $service: Service(globalIdentifier == $serviceMethod.service.globalIdentifier, actualState == Element.FINAL_STATE) 	 
+        idFactory : IdFactory()
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$serviceMethod.setId(idFactory.next($serviceMethod.getType()));
+    	$serviceMethod.setValid(true);
+    	
+    	$serviceMethod.setService($service);
+    	$serviceMethod.setActualState(Element.FINAL_STATE);
+    	update($serviceMethod);
+end
+
+
+rule "merge update serviceDependence with changes"
+	salience -4
+    when
+        $serviceDependence: ServiceDependence(
+        	$globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        $service: Service (globalIdentifier==$serviceDependence.service.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        $element: Element (globalIdentifier==$serviceDependence.dependence.globalIdentifier, actualState == Element.FINAL_STATE)
+        idFactory : IdFactory()
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$serviceDependence.setId(idFactory.next($serviceDependence.getType()));
+    	$serviceDependence.setValid(true);
+    	
+    	$serviceDependence.setService($service);
+    	$serviceDependence.setDependence($element);
+    	$serviceDependence.setActualState(Element.FINAL_STATE);
+    	update($serviceDependence);
+end
+
+rule "merge update serviceExposition with changes"
+	salience -4
+    when
+        $serviceExposition: ServiceExposition(
+        	$globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        $service: Service(globalIdentifier == $serviceExposition.service.globalIdentifier, actualState == Element.FINAL_STATE) 	 
+        idFactory : IdFactory()
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $service.globalIdentifier)
+    then
+    	$serviceExposition.setId(idFactory.next($serviceExposition.getType()));
+    	$serviceExposition.setValid(true);
+    	
+    	$serviceExposition.setService($service);
+    	$serviceExposition.setActualState(Element.FINAL_STATE);
+    	update($serviceExposition);
+end
+
+rule "merge delete merge serviceMethod without changes"
+	salience -20
+    when
+        $serviceMethod: ServiceMethod(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == ElementCts.MERGE_STATE)
+    then
+    	retract($serviceMethod);
+end
+
+rule "merge delete merge serviceDependence without changes"
+	salience -20
+    when
+        $serviceDependence: ServiceDependence(
+        	$globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        $elementDependence: Element (globalIdentifier==$serviceDependence.dependence.globalIdentifier, actualState == Element.FINAL_STATE)
+    then
+    	retract($serviceDependence);
+end
+
+rule "merge delete merge serviceExposition without changes"
+	salience -20
+    when
+        $serviceExposition: ServiceExposition(
+        	$globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+    then
+    	retract($serviceExposition);
+end
+
+query "serviceMethodByService" (String $globalIdentifier)
+	serviceMethodByService : ServiceMethod(service.globalIdentifier==$globalIdentifier, actualState == Element.FINAL_STATE)
+end
+
+query "serviceDependenceByService" (String $globalIdentifier)
+	serviceDependenceByService : ServiceDependence(service.globalIdentifier==$globalIdentifier,actualState == Element.FINAL_STATE)
+end
+
+query "expositionByService" (String $globalIdentifier)
+	expositionByService : ServiceExposition(service.globalIdentifier==$globalIdentifier,actualState == Element.FINAL_STATE)
+end
+
+query "serviceForExposeByProject" (String $globalIdentifier, String $tipoExposicion)
+	serviceForExposeByProject : Service($serviceGlobalIdentifier:globalIdentifier, project.globalIdentifier==$globalIdentifier, actualState == Element.FINAL_STATE)
+	not (exists (ServiceExposition(service.globalIdentifier==$serviceGlobalIdentifier, expositionType==$tipoExposicion, actualState == Element.FINAL_STATE)))
+end

@@ -1,0 +1,347 @@
+package rules
+
+import java.util.List;
+import java.util.ArrayList;
+
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.ServiceConfiguration;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.ServiceConfigurationParameter
+import com.stratio.datacentric.smart.knowledge.concepts.service.ServiceDeployment;
+import com.stratio.datacentric.smart.knowledge.concepts.service.ServiceDeploymentParameter;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.ExportServiceRegistry;
+import com.stratio.datacentric.smart.knowledge.concepts.service.ServiceDeploymentEndpoint;
+import com.springjpa.drools.model.ErrorConcept;
+import com.stratio.cct.servicestatus.api.model.DeploymentMarathon;
+import com.stratio.datacentric.smart.knowledge.concepts.service.metadata.PortDefinition;
+import com.stratio.datacentric.smart.knowledge.concepts.service.metadata.ServicePort;
+import mesosphere.marathon.client.model.v2.Container;
+import mesosphere.marathon.client.model.v2.Docker;
+
+rule "Deployment - Service Configuration"
+when 
+	$deploymentService: ServiceDeployment(state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $service:service, serviceConfiguration == null)
+	$serviceConfiguration: ServiceConfiguration(state  == ServiceConfiguration.LEARNED, service == $service)
+then
+	$deploymentService.setServiceConfiguration($serviceConfiguration);
+	DeploymentMarathon deploymentMarathon = $serviceConfiguration.toDeployment();
+	deploymentMarathon.setId($deploymentService.getDeploymentID());
+	$deploymentService.setDeployment(deploymentMarathon);
+	update($deploymentService);
+end
+
+
+
+rule "Deployment - instances"
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $service:service, deployment != null, deployment.instances == null)
+	$serviceConfiguration: ServiceConfiguration(state  == ServiceConfiguration.LEARNED, service == $service)
+then
+	$deploymentService.getDeployment().setInstances(1);
+	update($deploymentService);
+end
+
+
+rule "Deployment - resources"
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $service:service, deployment != null, deployment.cpus == null)
+	$serviceConfiguration: ServiceConfiguration(state  == ServiceConfiguration.LEARNED, service == $service)
+then
+	$deploymentService.getDeployment().setCpus(2d);
+	$deploymentService.getDeployment().setMem(2048d);
+	$deploymentService.getDeployment().setDisk(0d);
+	$deploymentService.getDeployment().setGpu(0d);
+	update($deploymentService);
+end
+
+rule "Deployment - healthChecks"
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $service:service, deployment != null, deployment.healthChecks == null)
+	$serviceConfiguration: ServiceConfiguration(state  == ServiceConfiguration.LEARNED, service == $service, healthChecks != null)
+then
+	$deploymentService.getDeployment().setHealthChecks($serviceConfiguration.getHealthChecks());
+	update($deploymentService);
+end
+
+
+rule "Deployment - portDefinitions"
+when
+    $deploymentService: ServiceDeployment(
+    	state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $service:service, deployment != null, deployment.portDefinitions == null)
+	$serviceConfiguration: ServiceConfiguration(state  == ServiceConfiguration.LEARNED, service == $service, servicePorts  != null)
+then
+	
+    List<ServicePort> servicePorts = $serviceConfiguration.getServicePorts();
+    List<PortDefinition> ports = new ArrayList<PortDefinition>();
+    
+    for (int cont=0;cont<servicePorts.size();cont++) {
+        ServicePort servicePort = servicePorts.get(cont);
+    	PortDefinition portDefinition = new PortDefinition();
+    	portDefinition.setPort(0);
+    	portDefinition.setProtocol(servicePort.getProtocol());
+    	
+    	ports.add(portDefinition);
+    }
+    
+    $deploymentService.getDeployment().setPortDefinitions(ports);
+
+	update($deploymentService);
+end
+
+rule "Deployment - Container"
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT,
+		serviceConfiguration != null, 
+		serviceConfiguration.containerDeploymentMode != null, 
+		serviceConfiguration.containerDeploymentMode == "DockerHost", 
+		deployment != null,
+		deployment.container == null)
+then
+	Container container = new Container();
+	container.setType("DOCKER");
+	Docker docker = new Docker();
+	docker.setPrivileged(true);
+	docker.setImage($deploymentService.getServiceConfiguration().getContainerImage());
+	docker.setNetwork("HOST");
+	docker.setForcePullImage(false);
+	container.setDocker(docker);
+	$deploymentService.getDeployment().setContainer(container);
+	update($deploymentService);
+end
+
+
+rule "Deployment - Labels"
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $serviceConfiguration:serviceConfiguration, deployment != null)
+	eval($deploymentService.getDeployment().getLabels().get("DCOS_PACKAGE_RELEASE") == null)
+then
+	Map<String, String> labels = $deploymentService.getDeployment().getLabels();
+	labels.put("DCOS_PACKAGE_RELEASE","1");
+	labels.put("DCOS_SERVICE_NAME",$deploymentService.getService());
+	labels.put("DCOS_PACKAGE_REGISTRY_VERSION","2.0");
+	
+	labels.put("SERVICE_CONFIGURATION_ID",$deploymentService.getServiceConfiguration().getService());
+	
+	if ($serviceConfiguration.isFramework()) {
+		labels.put("DCOS_PACKAGE_IS_FRAMEWORK","true");
+	} else {
+		labels.put("DCOS_PACKAGE_IS_FRAMEWORK","false");
+	}
+	labels.put("DCOS_PACKAGE_NAME",$deploymentService.getService());
+	labels.put("DCOS_PACKAGE_VERSION","0.1");
+	List<ExportServiceRegistry> lExportServiceRegistry =
+		$serviceConfiguration.getExportServiceRegistries();
+	if (lExportServiceRegistry.size()>0) {
+		labels.put("HAPROXY_GROUP","external");
+	}	
+	for (int cont=0;cont<lExportServiceRegistry.size();cont++) { 
+		ExportServiceRegistry exportServiceRegistry =
+			lExportServiceRegistry.get(cont);
+		String prefix = "HAPROXY_"+exportServiceRegistry.getPortIndex()+"_";
+		labels.put(
+			prefix+"BACKEND_SERVER_OPTIONS",
+			"server {serverName} {host_ipv4}:{port}{cookieOptions}{healthCheckOptions}{otherOptions} ssl verify none crt /etc/ssl/cert.pem");
+		labels.put(
+			prefix+"BACKEND_HEAD",
+			"backend {backend}\n  balance {balance}\n  mode {mode}\n  timeout server 30m\n  timeout client 30m\n");
+		if (exportServiceRegistry.isHttps()) {
+			labels.put(prefix+"REDIRECT_TO_HTTPS","true");
+		}
+	}
+	update($deploymentService);
+end		
+
+
+rule "Deployment - Endpoint hostname"
+when  
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT,$serviceDeploymentGlobalId: globalIdentifier, 
+		$serviceConfiguration:serviceConfiguration, deployment != null)
+	$serviceDeploymentEndpoint: ServiceDeploymentEndpoint(parentConceptId  == $serviceDeploymentGlobalId, hostName  != null)
+	eval($deploymentService.getDeployment().getLabels().get("HAPROXY_"+$serviceDeploymentEndpoint.getPortIndex()+"_VHOST") == null)
+then
+	Map<String, String> labels = $deploymentService.getDeployment().getLabels();
+	labels.put(
+		"HAPROXY_"+$serviceDeploymentEndpoint.getPortIndex()+"_VHOST",
+		$serviceDeploymentEndpoint.getHostName());
+end
+
+rule "Deployment - Endpoint path"
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $serviceDeploymentGlobalId: globalIdentifier, 
+		$serviceConfiguration:serviceConfiguration, deployment != null)
+	$serviceDeploymentEndpoint: ServiceDeploymentEndpoint(parentConceptId == $serviceDeploymentGlobalId, path != null)
+	eval($deploymentService.getDeployment().getLabels().get("HAPROXY_"+$serviceDeploymentEndpoint.getPortIndex()+"_PATH") == null)
+then
+	Map<String, String> labels = $deploymentService.getDeployment().getLabels();
+	labels.put(
+		"HAPROXY_"+$serviceDeploymentEndpoint.getPortIndex()+"_PATH",
+		$serviceDeploymentEndpoint.getPath());
+	labels.put(
+		"HAPROXY_"+$serviceDeploymentEndpoint.getPortIndex()+"_HTTP_BACKEND_PROXYPASS_PATH",
+		$serviceDeploymentEndpoint.getPath());
+end
+
+rule "Deployment - Env - With Customizable Parameters"
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $serviceDeploymentGlobalId: globalIdentifier, $service:service, deployment != null)
+	$serviceConfiguration: ServiceConfiguration(
+		$serviceConfigurationGlobalId: globalIdentifier, state  == ServiceConfiguration.LEARNED, service == $service)	
+	$serviceConfParameter: ServiceConfigurationParameter(
+		parentConceptId == $serviceConfigurationGlobalId, 
+		customizable == true, $key: key, $semanticName: semanticName )
+	$seviceDeploymentParameter: ServiceDeploymentParameter( 
+		parentConceptId == $serviceDeploymentGlobalId, (key == $semanticName || key ==$key) )
+	eval($deploymentService.getDeployment().getEnv().get($serviceConfParameter.getKey()) == null)
+then
+	$deploymentService.getDeployment().getEnv().put($serviceConfParameter.getKey(), $seviceDeploymentParameter.getValue());
+	update($deploymentService);
+end
+
+
+rule "Deployment - Env - With Global Parameters"
+when 
+	$deploymentService: ServiceDeployment(	
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $service:service, deployment != null)
+	$serviceConfiguration: ServiceConfiguration(
+		$serviceConfigurationGlobalId: globalIdentifier, state  == ServiceConfiguration.LEARNED, service == $service)
+	$serviceConfParameter: ServiceConfigurationParameter(
+		parentConceptId == $serviceConfigurationGlobalId, globalParameterId  != null, inputMandatory == false,
+		$globalParameterId: globalParameterId, $key: key, $semanticName: semanticName )
+	$globalParameter: GlobalParameter( id ==  $globalParameterId)
+	eval($deploymentService.getDeployment().getEnv().get($serviceConfParameter.getKey()) == null)
+then
+	$deploymentService.getDeployment().getEnv().put($serviceConfParameter.getKey(), $globalParameter.getDefaultValue());
+	update($deploymentService);
+end
+
+rule "Deployment - Env - With Default Value Parameters"
+salience -1
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, $service:service, deployment != null)
+	$serviceConfiguration: ServiceConfiguration(
+		$serviceConfigurationGlobalId: globalIdentifier, state  == ServiceConfiguration.LEARNED, service == $service)
+	$serviceConfParameter: ServiceConfigurationParameter(
+		parentConceptId == $serviceConfigurationGlobalId, inputMandatory == false, defaultValue   != null, $key: key )
+	eval($deploymentService.getDeployment().getEnv().get($serviceConfParameter.getKey()) == null)
+then
+	$deploymentService.getDeployment().getEnv().put($serviceConfParameter.getKey(), $serviceConfParameter.getDefaultValue());
+	update($deploymentService);
+end
+
+
+
+
+rule "Deployment pre checking mandatory parameters"
+salience -5
+when 
+	$deploymentService: ServiceDeployment(
+		$serviceDeploymentGlobalId: globalIdentifier, state == ServiceDeployment.STATE_PRE_CHECKING_DEPLOYMENT, 
+		$service:service, $serviceDeploymentId: deploymentID)
+	$serviceConfiguration: ServiceConfiguration(
+		$serviceConfigurationGlobalId: globalIdentifier, state  == ServiceConfiguration.LEARNED, service == $service)
+	$serviceConfParameter: ServiceConfigurationParameter(
+		parentConceptId == $serviceConfigurationGlobalId, inputMandatory == true, $key: key, $semanticName: semanticName )
+	not (exists( ServiceDeploymentParameter( 
+		parentConceptId == $serviceDeploymentGlobalId, (key == $semanticName || key ==$key))) )
+then
+	ErrorConcept error = new ErrorConcept();
+	error.setParentConceptId($serviceDeploymentGlobalId);
+	error.setCodeError(ErrorConcept.COD_ERROR_PARAMETER_MANDATORY);
+	if ($semanticName != null) {
+		error.setMessageError($semanticName+" ("+$key+") is mandatory and it has not been introduced.");
+	} else {
+		error.setMessageError($key+" is mandatory and it has not been introduced.");
+	}
+	insert(error);
+end
+
+rule "Deployment - Service Configuration Not exists"
+salience -5
+when 
+	$deploymentService: ServiceDeployment(
+		$serviceDeploymentGlobalId: globalIdentifier, state == ServiceDeployment.INITIAL_STATE, $service:service)
+	not (exists (ServiceConfiguration(state  == ServiceConfiguration.LEARNED, service == $service)))
+then
+	ErrorConcept error = new ErrorConcept();
+	error.setParentConceptId($serviceDeploymentGlobalId);
+	error.setCodeError(ErrorConcept.COD_ERROR_WITHOUT_DEPLOYMENT_CONFIGURATION);
+	error.setMessageError("Deployment without service configuration: "+$deploymentService.getService());
+	insert(error);
+end
+
+
+rule "Deployment init state"
+salience -10
+when 
+	$deploymentService: ServiceDeployment(
+		state == ServiceDeployment.INITIAL_STATE)
+then
+	$deploymentService.setState(ServiceDeployment.STATE_PRE_CHECKING_DEPLOYMENT);
+	update($deploymentService);
+end
+
+rule "Deployment with errors"
+salience -10
+when 
+	$deploymentService: ServiceDeployment(
+		$serviceDeploymentGlobalId: globalIdentifier, state == ServiceDeployment.STATE_PRE_CHECKING_DEPLOYMENT)
+	(exists (ErrorConcept(parentConceptId  == $serviceDeploymentGlobalId)))
+then
+
+	$deploymentService.setState(ServiceDeployment.STATE_WITHERRORS);
+	update($deploymentService);
+end
+
+
+rule "Deployment prechecking to deploy"
+salience -10
+when 
+	$deploymentService: ServiceDeployment(
+		$serviceDeploymentGlobalId: globalIdentifier, state == ServiceDeployment.STATE_PRE_CHECKING_DEPLOYMENT)
+	not (exists (ErrorConcept(parentConceptId == $serviceDeploymentGlobalId)))
+then
+	$deploymentService.setState(ServiceDeployment.STATE_CREATING_DEPLOYMENT);
+	update($deploymentService);
+end
+
+
+rule "Deployment to check"
+salience -10
+when 
+	$deploymentService: ServiceDeployment(
+		$serviceDeploymentGlobalId: globalIdentifier, state == ServiceDeployment.STATE_CREATING_DEPLOYMENT, deployment != null)
+	not (exists (ErrorConcept(parentConceptId == $serviceDeploymentGlobalId)))
+then
+	$deploymentService.setState(ServiceDeployment.STATE_CHECKING_DEPLOYMENT);
+	update($deploymentService);
+end
+
+rule "Deployment to deploy"
+salience -10
+when 
+	$deploymentService: ServiceDeployment(
+		$serviceDeploymentGlobalId: globalIdentifier, state == ServiceDeployment.STATE_CHECKING_DEPLOYMENT, deployment != null)
+	not (exists (ErrorConcept(parentConceptId == $serviceDeploymentGlobalId)))
+then
+	$deploymentService.setState(ServiceDeployment.STATE_DEPLOYING);
+	update($deploymentService);
+end
+
+rule "write deployment"
+salience -10
+when 
+	$deploymentService: ServiceDeployment(
+		$serviceDeploymentGlobalId: globalIdentifier, state == ServiceDeployment.STATE_DEPLOYING, deployment != null)
+	not (exists (ErrorConcept(parentConceptId == $serviceDeploymentGlobalId)))
+then
+	$deploymentService.getDeployment().toJson();
+	$deploymentService.setState(ServiceDeployment.STATE_DEPLOYED);
+	update($deploymentService);
+end

@@ -1,0 +1,136 @@
+//created on: Dec 28, 2017
+package rules
+
+import com.stratio.datacentric.smart.knowledge.concepts.service.ServiceConcept;
+import com.stratio.datacentric.smart.knowledge.concepts.service.ServiceParameter;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.ServiceConfiguration;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.ServiceConfigurationParameter;
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.GlobalParameter;
+import com.springjpa.drools.model.Element;
+
+import java.util.Iterator;
+
+import java.util.Map;
+
+
+
+	
+rule "Create Service Configuration"
+    when
+        $marathonTask: ServiceConcept( $serviceConfigurationId : serviceConfigurationId  )
+        not (exists (ServiceConfiguration(id == $serviceConfigurationId)))
+    then
+    	ServiceConfiguration serviceConfiguration = new ServiceConfiguration();
+    	serviceConfiguration.setService($serviceConfigurationId);
+    	serviceConfiguration.setId($serviceConfigurationId);
+    	
+    	serviceConfiguration.setCmd($marathonTask.getCmd());
+    	serviceConfiguration.setFramework(false);
+    	
+    	serviceConfiguration.setState(ServiceConfiguration.LEARNING);
+    	insert(serviceConfiguration);
+	end
+	
+rule "Service Configuration - Container"
+    when
+        $marathonTask: ServiceConcept( $serviceConfigurationId : serviceConfigurationId, container  != null )
+        $serviceConfiguration: ServiceConfiguration(state ==ServiceConfiguration.LEARNING, id == $serviceConfigurationId, containerDeploymentMode  == null)
+    then
+    	$serviceConfiguration.setContainerDeploymentMode("DockerHost");
+    	$serviceConfiguration.setContainerImage($marathonTask.getContainer().getDocker().getImage());
+    	update($serviceConfiguration);
+	end
+
+rule "Service Configuration - HealthChecks"
+    when
+        $marathonTask: ServiceConcept( $serviceConfigurationId : serviceConfigurationId, healthChecks   != null )
+        $serviceConfiguration: ServiceConfiguration(state ==ServiceConfiguration.LEARNING,id == $serviceConfigurationId, healthChecks  == null)
+    then
+    	$serviceConfiguration.setHealthChecks($marathonTask.getHealthChecks());
+    	update($serviceConfiguration);
+	end
+	
+rule "Service Configuration - portDefinitions"
+    when
+        $marathonTask: ServiceConcept( $serviceConfigurationId : serviceConfigurationId, servicePorts    != null )
+        $serviceConfiguration: ServiceConfiguration(state ==ServiceConfiguration.LEARNING,id == $serviceConfigurationId, servicePorts  == null)
+    then
+    	$serviceConfiguration.setServicePorts($marathonTask.getServicePorts());
+    	update($serviceConfiguration);
+	end
+
+rule "Service Service Registry"
+    when
+        $marathonTask: ServiceConcept( $serviceConfigurationId : serviceConfigurationId, container  != null )
+        $serviceConfiguration: ServiceConfiguration(state ==ServiceConfiguration.LEARNING,id == $serviceConfigurationId, exportServiceRegistries  == null)
+    then
+    	$serviceConfiguration.setExportServiceRegistries($marathonTask.calculeExportServiceRegistries());
+    	update($serviceConfiguration);
+	end
+	
+rule "Create Service Parameter"
+    when
+        $serviceParameter: ServiceParameter( $key: key, $serviceConfigurationId : serviceConcept.serviceConfigurationId )
+        $serviceConfiguration: ServiceConfiguration(
+        	id == $serviceConfigurationId, state ==ServiceConfiguration.LEARNING, $serviceConfigurationGlobalIdentifier: globalIdentifier)
+        not (exists (ServiceConfigurationParameter(
+        	parentConceptId   == $serviceConfigurationGlobalIdentifier, key == $key)))
+    then
+    	ServiceConfigurationParameter serviceConfigurationParameter =
+    		new ServiceConfigurationParameter();
+    	serviceConfigurationParameter.setParentConceptId($serviceConfigurationGlobalIdentifier);
+    	serviceConfigurationParameter.setKey($serviceParameter.getKey());
+    	serviceConfigurationParameter.setDefaultValue($serviceParameter.getDefaultValue());
+    	serviceConfigurationParameter.setInputMandatory(false);
+    	serviceConfigurationParameter.setCustomizable(true);
+    	serviceConfigurationParameter.setOptional(false);
+    	
+    	
+    	insert(serviceConfigurationParameter);
+    		
+	end
+	
+rule "Parameter Is Global"
+    when
+        $globalParameter: GlobalParameter( $key: key)
+        ServiceConfiguration(state ==ServiceConfiguration.LEARNING, $serviceConfigurationGlobalIdentifier: globalIdentifier)
+        $serviceConfigurationParameter: ServiceConfigurationParameter(
+        	parentConceptId   == $serviceConfigurationGlobalIdentifier, key == $key)
+    then
+    	$serviceConfigurationParameter.setGlobalParameterId($globalParameter.getId());
+    	update($serviceConfigurationParameter);
+    		
+	end	
+	
+rule "Parameter Is Global by Value"
+    when
+        $globalParameter: GlobalParameter( $defaultValue: defaultValue)
+        ServiceConfiguration(
+        	state ==ServiceConfiguration.LEARNING, $serviceConfigurationGlobalIdentifier: globalIdentifier)
+        $serviceConfigurationParameter: ServiceConfigurationParameter(
+        	parentConceptId   == $serviceConfigurationGlobalIdentifier, defaultValue  == $defaultValue)
+    then
+    	$serviceConfigurationParameter.setGlobalParameterId($globalParameter.getId());
+    	update($serviceConfigurationParameter);
+    		
+	end	
+	
+
+
+query "service_configurations" ()
+	service_configurations : ServiceConfiguration()
+end
+
+query "service_configurations_by_id" (String $id)
+	service_configurations_by_id : ServiceConfiguration(id == $id)
+end
+
+
+query "service_parameter_configurations" ()
+	service_parameter_configurations : ServiceConfigurationParameter()
+end
+
+query "service_configurations_parameter" (String $serviceConfiguration, String $serviceConfigurationKey)
+	service_configurations_parameter : ServiceConfigurationParameter(
+		key == $serviceConfigurationKey, parentConceptId  == $serviceConfiguration)
+end

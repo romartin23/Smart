@@ -1,0 +1,107 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.MergeUpdate
+import com.indra.virtualarchitecture.model.ElementCts
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.Import
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.type.TypeCts
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import org.drools.QueryResults;
+import org.drools.QueryResult;
+import com.indra.virtualarchitecture.merge.Merges;
+import com.indra.virtualarchitecture.model.transaction.tuxedo.TuxedoTransaction;
+import com.indra.virtualarchitecture.model.transaction.tuxedo.TuxedoTransactionCts;
+
+rule "tuxedo Transaction get name"
+    when
+        $tuxedoTransaction: TuxedoTransaction($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Element.INITIAL_STATE)
+    then
+    
+    	String $name = CommandExecution.getTransactionName($tuxedoTransaction.getPath());
+    	$tuxedoTransaction.setName($name); 
+		$tuxedoTransaction.setActualState(TuxedoTransactionCts.WITH_NAME_STATE);
+		update($tuxedoTransaction);
+end
+
+rule "tuxedo Transaction create model" 
+    when
+        $tuxedoTransaction: TuxedoTransaction($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == TuxedoTransactionCts.WITH_NAME_STATE)
+    then
+    	
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"invoke tuxedoxml add --package com.indra.comext.message."+$tuxedoTransaction.getName().toLowerCase()+" --xmlPath "+$tuxedoTransaction.getPath()+" --skipValidations true");
+		$tuxedoTransaction.setActualState(TuxedoTransactionCts.MODEL_CREATED_STATE);
+		update($tuxedoTransaction);
+		insert(rooCommand); 
+end
+
+rule "tuxedo Transaction create service"
+    when
+        $tuxedoTransaction: TuxedoTransaction($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == TuxedoTransactionCts.MODEL_CREATED_STATE)
+    then
+    	RooCommand rooCommand = 
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"service --interface ~.service."+$tuxedoTransaction.getName()+"entradaSrv "+ 
+				"--entity com.indra.comext.message."+$tuxedoTransaction.getName().toLowerCase()+"."+$tuxedoTransaction.getName()+"entrada");
+		$tuxedoTransaction.setActualState(TuxedoTransactionCts.SERVICE_CREATED_STATE);
+		update($tuxedoTransaction);
+		insert(rooCommand); 
+end
+
+rule "tuxedo Transaction create controller"
+    when
+        $tuxedoTransaction: TuxedoTransaction($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == TuxedoTransactionCts.SERVICE_CREATED_STATE)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"web mvc json add --class ~.web."+$tuxedoTransaction.getName()+"Controller "+
+				"--jsonObject ~.message."+$tuxedoTransaction.getName().toLowerCase()+"."+$tuxedoTransaction.getName()+"entrada");
+		$tuxedoTransaction.setActualState(TuxedoTransactionCts.CONTROLLER_CREATED_STATE);
+		update($tuxedoTransaction);
+		insert(rooCommand); 
+end
+
+rule "tuxedo Transaction create view"
+    when
+        $tuxedoTransaction: TuxedoTransaction($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == TuxedoTransactionCts.CONTROLLER_CREATED_STATE)
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				"extjs layers --class ~.message."+$tuxedoTransaction.getName().toLowerCase()+"."+$tuxedoTransaction.getName()+"entrada");
+		$tuxedoTransaction.setActualState(TuxedoTransactionCts.VIEW_CREATED_STATE);
+		update($tuxedoTransaction);
+		insert(rooCommand); 
+end
+
+rule "delete tuxedo Transaction"
+    when
+        $tuxedoTransaction: TuxedoTransaction(actualState == Element.FINAL_STATE)
+    then
+		retract($tuxedoTransaction);
+end

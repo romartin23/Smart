@@ -1,0 +1,38 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+import com.springjpa.drools.model.Element
+import com.springjpa.drools.model.ElementCts
+import com.springjpa.drools.model.global.MergeUpdate
+
+//declare any global variables here
+
+
+
+rule "delete repeted merge element"
+	salience 10
+    when
+        $element1: Element($globalIdentifier : globalIdentifier, state == ElementCts.MERGE_STATE) 
+        $element2: Element(globalIdentifier == $globalIdentifier, hashCode != $element1.hashCode, state == ElementCts.MERGE_STATE) 
+    then
+        retract($element2);
+end
+
+rule "send change"
+	salience -10
+    when
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES)
+    then
+    	//Merges.updateElement($mergeUpdate.getElement());
+    	retract($mergeUpdate);
+end
+
+rule "delete change"
+	salience -10
+    when
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES)
+    then
+    	retract($mergeUpdate); 
+end

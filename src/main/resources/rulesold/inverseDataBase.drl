@@ -1,0 +1,58 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.MergeUpdate
+import com.indra.virtualarchitecture.model.ElementCts
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.Import
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.type.TypeCts
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import org.drools.QueryResults;
+import org.drools.QueryResult;
+import com.indra.virtualarchitecture.merge.Merges;
+import com.indra.virtualarchitecture.model.basedatos.InverseDataBase;
+import com.indra.virtualarchitecture.model.basedatos.InverseDataBaseCts;
+
+rule "inverseDataBase action" 
+    when
+        $inverseDataBase: InverseDataBase($globalIdentifier:globalIdentifier, $idAction:idAction, valid == true,  actualState == Element.INITIAL_STATE)
+    then
+    	
+    	String tables = $inverseDataBase.getTables();
+    	tables.replaceAll("|"," ");
+    	
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+				" database reverse engineer --schema no-schema-required --package ~.domain --includeTables \""+tables+"\" ");
+		$inverseDataBase.setActualState(InverseDataBaseCts.ACTION_EXECUTED);
+		update($inverseDataBase);
+		insert(rooCommand); 
+end
+
+rule "delete inverseDataBase"
+    when
+        $inverseDataBase: InverseDataBase(actualState == Element.FINAL_STATE)
+    then
+		retract($inverseDataBase);
+end

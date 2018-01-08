@@ -1,0 +1,104 @@
+package rules
+ 
+import com.stratio.datacentric.smart.knowledge.concepts.service.configuration.GlobalParameter;
+
+rule "Init Vault Host"
+	when 
+		(not (exists (GlobalParameter(key == "VAULT_HOST"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("VAULT_HOST");
+		globalParameterVaultHost.setDefaultValue("gosec2.node.eos.crc.labs.stratio.com");
+		insert(globalParameterVaultHost);
+	end
+	
+rule "Init Vault Port"
+	when 
+		(not (exists (GlobalParameter(key == "VAULT_PORT"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("VAULT_PORT");
+		globalParameterVaultHost.setDefaultValue("8200");
+		insert(globalParameterVaultHost);
+	end
+	
+rule "Ldap User Id"
+	when 
+		(not (exists (GlobalParameter(key == "LDAP_USER_ID"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("LDAP_USER_ID");
+		globalParameterVaultHost.setDefaultValue("uid");
+		insert(globalParameterVaultHost);
+	end		
+	
+rule "Init Ldap Port"
+	when 
+		(not (exists (GlobalParameter(key == "LDAP_PORT"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("LDAP_PORT");
+		globalParameterVaultHost.setDefaultValue("636");
+		insert(globalParameterVaultHost);
+	end	
+	
+rule "Init Ldap Group Domain"
+	when 
+		(not (exists (GlobalParameter(key == "LDAP_GROUP_DOMAIN"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("LDAP_GROUP_DOMAIN");
+		globalParameterVaultHost.setDefaultValue("ou=Groups,dc=stratio,dc=com");
+		insert(globalParameterVaultHost);
+	end
+	
+rule "Init Ldap Schema"
+	when 
+		(not (exists (GlobalParameter(key == "LDAP_SCHEMA"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("LDAP_SCHEMA");
+		globalParameterVaultHost.setDefaultValue("RFC2307bis");
+		insert(globalParameterVaultHost);
+	end		
+
+
+
+rule "Kafka Audit"
+	when 
+		(not (exists (GlobalParameter(key == "KAFKA_AUDIT"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("KAFKA_AUDIT");
+		globalParameterVaultHost.setDefaultValue("gosec1.node.eos.crc.labs.stratio.com:9092,gosec2.node.eos.crc.labs.stratio.com:9092,gosec3.node.eos.crc.labs.stratio.com:9092");
+		insert(globalParameterVaultHost);
+	end	
+
+rule "Kafka Audit Topic"
+	when 
+		(not (exists (GlobalParameter(key == "KAFKA_AUDIT_TOPIC"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("KAFKA_AUDIT_TOPIC");
+		globalParameterVaultHost.setDefaultValue("audit");
+		insert(globalParameterVaultHost);
+	end	
+
+rule "KDC_HOST"
+	when 
+		(not (exists (GlobalParameter(key == "KDC_HOST"))))
+	then
+		GlobalParameter globalParameterVaultHost = 
+			new GlobalParameter();
+		globalParameterVaultHost.setKey("KDC_HOST");
+		globalParameterVaultHost.setDefaultValue("bootstrap.crc.labs.stratio.com");
+		insert(globalParameterVaultHost);
+	end	

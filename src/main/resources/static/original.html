@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Hello jQuery</title>
+        <script src="./lib/jquery.js"></script>
+        <script src="./lib/jquery-ui.custom.js"></script>
+        
+        <link href="jsoneditor.css" rel="stylesheet" type="text/css">
+  		<script src="jsoneditor.js"></script>
+
+  		<script src="https://bgrins.github.io/filereader.js/filereader.js"></script>
+  		<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2014-11-29/FileSaver.min.js"></script>
+    
+    	<style>
+		    html, body {
+		      font: 11pt sans-serif;
+		    }
+		    #jsoneditor {
+		      width: 500px;
+		      height: 800px;
+		    }
+		  </style>
+    </head>
+
+    <body>
+    
+    
+    	
+        <div>
+            <p class="greeting-id">The ID is </p>
+            <p class="greeting-content">The content is </p>
+        </div>
+        <form class="form-horizontal" id="search-form">
+            <div class="form-group form-group-lg">
+                <label class="col-sm-2 control-label">Username</label>
+                <div class="col-sm-10">
+                    <input type="text" class="form-control" id="username"/>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="col-sm-offset-2 col-sm-10">
+                    <button type="submit" id="bth-search"
+                            class="btn btn-primary btn-lg">Search
+                    </button>
+                </div>
+            </div>
+        </form>
+       
+        <div id="jsoneditor"></div>
+        
+        <script>
+        
+	        
+        
+        	var options = {
+       			 mode: 'code',
+       			 modes: ['code', 'form', 'text', 'tree', 'view'], // allowed modes
+        	};
+		  	// create the editor
+		  	var editor = new JSONEditor(document.getElementById('jsoneditor'), options);
+		  	
+		  	$(document).ready(function () {
+		  		
+	            $("#search-form").submit(function (event) {
+	
+	                //stop submit the form, we will post it manually.
+	                event.preventDefault();
+	
+	                fire_ajax_submit();
+	
+	            });
+	
+	        });
+        
+	        function fire_ajax_submit() {
+	
+	            var data = editor.get();
+	
+	            $("#btn-search").prop("disabled", true);
+	
+	            $.ajax({
+	                type: "PUT",
+	                contentType: "application/json",
+	                url: "http://localhost:8080/putServiceConfigurationParameter",
+	                data: JSON.stringify(data),
+	                dataType: 'json',
+	                cache: false,
+	                timeout: 600000,
+	                success: function (data) {
+	
+	                    var json = "<h4>Ajax Response</h4><pre>"
+	                        + JSON.stringify(data, null, 4) + "</pre>";
+	                    $('#feedback').html(json);
+	
+	                    console.log("SUCCESS : ", data);
+	                    $("#btn-search").prop("disabled", false);
+	
+	                },
+	                error: function (e) {
+	
+	                    var json = "<h4>Ajax Response</h4><pre>"
+	                        + e.responseText + "</pre>";
+	                    $('#feedback').html(json);
+	
+	                    console.log("ERROR : ", e);
+	                    $("#btn-search").prop("disabled", false);
+	
+	                }
+	            });
+	
+	        }
+		 
+		  	$(document).ready(function() {
+		  	    $.ajax({
+		  	        url: "http://localhost:8080/getServiceConfigurationParameter?serviceConfiguration=/discovery3&key=MB_DB_HOST"
+		  	    }).then(function(data) {
+		  	    	editor.set(data,"serviceConfiguration");
+		  	    });
+		  	});
+		</script>
+    </body>
+</html>

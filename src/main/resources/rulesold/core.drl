@@ -1,0 +1,178 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+
+
+//declare any global variables here
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.task.GenericTask 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.ElementCts 
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.alert.Alert
+
+
+
+rule "create element"
+	salience 1000 
+    when
+        action : Action(id == null, codeAction==Action.CREATE_ACTION)
+        idFactory : IdFactory() 
+    then
+    	action.setId(idFactory.next("Action"));
+    	Element element = action.getElement(); 
+    	element.setId(idFactory.next(element.getType()));
+    	element.setIdAction(action.getId());
+    	update(action);
+    	insert(element);
+    	Response response = new Response();
+    	response.setIdAction(action.getId()); 
+    	insert (response);  
+
+end
+
+rule "update element"
+	salience 1000 
+    when
+        action : Action(id == null, codeAction==Action.UPDATE_ACTION)
+        idFactory : IdFactory()
+    then
+    	action.setId(idFactory.next("Action"));
+    	Element element = action.getElement(); 
+    	
+    	Response response = new Response();
+    	response.setIdAction(action.getId()); 
+    	response.setCorrect(true);
+    	insert (response); 
+    	update(element); 
+    	retract(action);
+    	
+end
+
+rule "validate unique element"
+    when
+    	action : Action($idAction: id)
+        element : Element($type : type, $uniqueIdentifier : uniqueIdentifier, valid == true, $id : id) 
+        element2 : Element(id != $id, idAction == $idAction, type == $type, uniqueIdentifier == $uniqueIdentifier, valid == false)
+        
+    then
+        Error error = new Error();
+        error.setIdAction(action.getId());
+        error.setErrorDescription(
+        	"No se pueden crear dos elementos con las mismas caracteristicas");
+        insert(error);
+
+end
+
+rule "assign error to response"
+    when
+        error : Error()
+        response : Response()
+    then
+    	response.addError(error);
+    	update(response);
+        retract(error);
+
+end
+
+
+rule "finish validation element action create"
+	salience -1000
+    when
+        action : Action($id:id, codeAction==Action.CREATE_ACTION)
+        response : Response(idAction==$id, hasErrors == false)
+        element : Element(idAction==$id, valid == false)
+    then
+    	element.setValid(true); 
+    	element.setActualState(Element.INITIAL_STATE);
+    	update(element);
+end
+
+rule "finish action create with error"
+	salience -1000
+    when
+        action : Action($id:id, codeAction==Action.CREATE_ACTION)
+        response : Response(idAction==$id, hasErrors == true)
+        element : Element(idAction==$id)
+    then
+    	response.setCorrect(false);
+        retract(element);
+        retract(action);
+        update(response);
+end
+
+rule "finish action create ok"
+	salience -1000
+    when
+        action : Action($id:id, codeAction==Action.CREATE_ACTION)
+        response : Response(idAction==$id, hasErrors == false)
+        element : Element(idAction==$id, valid == true)
+    then
+     	retract(action);
+    	element.setActualState(Element.FINAL_STATE);
+    	update(element);
+    	response.setCorrect(true);
+    	update(response);
+       
+end
+
+rule "remove generic task"
+	salience -2000
+    when
+        genericTask : GenericTask(actualState==Element.FINAL_STATE)
+    then
+     	retract(genericTask);
+end
+
+query "actions" 
+	actions : Action()
+end
+
+query "response" 
+	response : Response()
+end
+
+query "allElements" ()
+	allElements : Element()
+end
+
+query "elements" ()
+	elements : Element(actualState == Element.FINAL_STATE)
+end
+
+query "elementsMerge" ()
+	elementsMerge : Element(actualState == ElementCts.MERGE_STATE)
+end
+
+query "elementByGlobalIdentifier" (String $globalIdentifier)
+	elementByGlobalIdentifier : Element(globalIdentifier==$globalIdentifier)
+end
+
+
+query "synonyms" 
+	synonyms : Synonym()
+end
+
+query "association" 
+	association : Association()
+end
+
+query "person" (String $name) 
+	person : Person() 
+	eval(person.matchName($name))
+end
+
+query "persona_login" (String $login) 
+	persona_login : Person(login == $login)
+end
+
+
+query "genericTask" () 
+	genericTask : GenericTask()
+end

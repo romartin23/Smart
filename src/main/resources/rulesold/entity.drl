@@ -1,0 +1,540 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+
+
+//declare any global variables here
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.task.GenericTask
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.MergeUpdate
+import com.indra.virtualarchitecture.model.ElementCts
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.ProjectCts
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Cruds
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.type.TypeCts
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import org.drools.QueryResults;
+import org.drools.QueryResult;
+import com.indra.virtualarchitecture.merge.Merges;
+import com.indra.virtualarchitecture.model.entity.EntityMerge;
+import java.util.List;
+import java.util.ArrayList;
+
+
+rule "entity create"
+    when
+        entity: Entity(
+        	$name : name, $globalIdentifier : globalIdentifier, entityPackage == null, valid == true,  actualState == Element.INITIAL_STATE) 
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand($globalIdentifier,"entity jpa --class ~.domain."+entity.getName());
+		entity.setActualState(Entity.ENTITY_CREATED_STATE);
+		entity.setEntityPackage("domain");
+		update(entity);
+		insert(rooCommand);
+end
+
+
+rule "attribute create string"
+    when 
+        attribute: Attribute(
+        	$name : name, $globalIdentifier : globalIdentifier, valid == true,  actualState == Element.INITIAL_STATE, 
+        	attributeType.genericType.name == "string") 
+    then
+    
+    	RooCommand rooCommand = null;
+    	if (attribute.isNotNull()) {
+    		rooCommand =
+				CommandExecution.executeRooCommand(
+					$globalIdentifier,
+						"field string --fieldName "+attribute.getName() + 
+						" --sizeMin "+attribute.getAttributeType().getMin() +
+						" --sizeMax "+attribute.getAttributeType().getMax()+
+						" --notNull true"+
+						" --class ~."+attribute.getEntity().getEntityPackage()+"."+attribute.getEntity().getName());
+    	} else { 
+	    	rooCommand =
+				CommandExecution.executeRooCommand(
+					$globalIdentifier,
+						"field string --fieldName "+attribute.getName() + 
+						" --sizeMin "+attribute.getAttributeType().getMin() +
+						" --sizeMax "+attribute.getAttributeType().getMax()+
+						" --class ~.domain."+attribute.getEntity().getName());
+		}
+		attribute.setName("");
+		attribute.setActualState(Attribute.ATTRIBUTE_CREATED_STATE);
+		update(attribute);
+		insert(rooCommand);
+end
+
+rule "entityAssociation create ManyToOne"
+    when
+        entityAssociation: EntityAssociation(
+        	$name : name, $globalIdentifier : globalIdentifier, valid == true,  actualState == Element.INITIAL_STATE, 
+        	entityAssociation.associationType == "ManyToOne") 
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"field reference --fieldName  "+entityAssociation.getName() + 
+					" --class ~.domain."+entityAssociation.getOriginEntity().getName() +
+					" --type ~.domain."+entityAssociation.getDestineEntity().getName());
+		entityAssociation.setActualState(EntityAssociation.ASSOCIATION_CREATED_STATE);
+		update(entityAssociation);
+		insert(rooCommand);
+end 
+
+rule "entityAssociation create OneToMany"
+    when
+        entityAssociation: EntityAssociation(
+        	$name : name, $globalIdentifier : globalIdentifier, valid == true,  actualState == Element.INITIAL_STATE, 
+        	entityAssociation.associationType == "OneToMany") 
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"field set --fieldName  "+entityAssociation.getName() + 
+					" --class ~.domain."+entityAssociation.getOriginEntity().getName() +
+					" --type ~.domain."+entityAssociation.getDestineEntity().getName());
+		entityAssociation.setActualState(EntityAssociation.ASSOCIATION_CREATED_STATE);
+		update(entityAssociation);
+		insert(rooCommand); 
+end 
+
+rule "all cruds dojo"
+    when
+        cruds: Cruds(
+        	$globalIdentifier : globalIdentifier, 
+        	actualState == Element.INITIAL_STATE,
+        	project.capaPresentacion==ProjectCts.DOJO) 
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"web mvc all --package ~.web");
+		insert(rooCommand);
+		
+		cruds.setActualState(Cruds.CRUDS_CREATED_STATE); 
+		update(cruds);
+end
+
+rule "crud create dojo"
+    when
+        crudEntity: CrudEntity(
+        	$globalIdentifier : globalIdentifier, 
+        	actualState == Element.INITIAL_STATE, 
+        	entity.project.capaPresentacion==ProjectCts.DOJO) 
+        
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"web mvc scaffold --class ~.web."+crudEntity.getEntity().getName()+"Controller --backingType ~.domain."+crudEntity.getEntity().getName());
+		crudEntity.setActualState(CrudEntity.CRUD_CREATED_STATE); 
+		update(crudEntity);
+		insert(rooCommand);
+end
+
+rule "all cruds extjs"
+    when
+        cruds: Cruds(
+        	$globalIdentifier : globalIdentifier, 
+        	actualState == Element.INITIAL_STATE,
+        	project.capaPresentacion==ProjectCts.ExtJs) 
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"json all");
+		insert(rooCommand);
+		
+    	rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"web mvc json all --package ~.web");
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"extjs mvc json all query --package ~.web");
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"extjs all");
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"extjs export all --type EXCEL");
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"extjs export all --type PDF");
+		insert(rooCommand);
+		
+			
+		cruds.setActualState(Cruds.CRUDS_CREATED_STATE); 
+		update(cruds);
+end
+
+
+rule "crud create extjs"
+    when
+       crudEntity: CrudEntity(
+        	$globalIdentifier : globalIdentifier, 
+        	actualState == Element.INITIAL_STATE, 
+        	entity.project.capaPresentacion==ProjectCts.ExtJs)  
+    then
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"json add --class ~."+crudEntity.getEntity().getEntityPackage()+"."+crudEntity.getEntity().getName());
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"web mvc json add --class ~.web."+crudEntity.getEntity().getName()+"Controller --jsonObject ~."+crudEntity.getEntity().getEntityPackage()+"."+crudEntity.getEntity().getName());
+		insert(rooCommand);
+		
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"extjs mvc json query --class ~.web."+crudEntity.getEntity().getName()+"Controller --jsonObject ~."+crudEntity.getEntity().getEntityPackage()+"."+crudEntity.getEntity().getName());
+		insert(rooCommand);
+
+		rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"extjs layers --class ~."+crudEntity.getEntity().getEntityPackage()+"."+crudEntity.getEntity().getName());
+		insert(rooCommand);
+		
+		crudEntity.setActualState(CrudEntity.CRUD_CREATED_STATE); 
+		update(crudEntity);
+		
+end
+
+rule "overwrite crud create extjs"
+    when
+       $genericTask: GenericTask(
+        	$globalIdentifier : globalIdentifier, 
+        	taskCode == "OVERWRITE_PRESENTATION",
+        	actualState == Element.INITIAL_STATE) 
+        	eval( 
+        		$genericTask.getParameters().get("entity") != null &&
+        		( ((Entity) $genericTask.getParameters().get("entity")).getProject().getCapaPresentacion().equals(ProjectCts.ExtJs))
+        	) 
+    then
+    	Entity $entity = (Entity) $genericTask.getParameters().get("entity");
+    	RooCommand rooCommand =
+			CommandExecution.executeRooCommand(
+				$globalIdentifier,
+					"extjs layers --class ~.domain."+$entity.getName() +" --overwrite true");
+		insert(rooCommand);
+end
+
+rule "delete cruds"
+    when
+        $cruds: Cruds(actualState == Element.FINAL_STATE)
+    then
+		retract($cruds);
+end
+
+ 
+
+
+rule "merge entity"
+    when
+        $entity: Entity($name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        $entityExist: Entity(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) 
+    then
+        
+        MergeUpdate $mergeUpdate = new MergeUpdate($entityExist);
+        $mergeUpdate.setState(MergeUpdate.WITHOUT_CHANGES); 
+        insert($mergeUpdate);
+end
+
+rule "create merge entity" 
+	salience 0
+    when
+        $entity: Entity($name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        not (exists ( Entity(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) ))
+        $project: Project(globalIdentifier == $entity.getProject().getGlobalIdentifier()) 
+        idFactory : IdFactory()
+    then
+    	$entity.setId(idFactory.next($entity.getType()));
+    	$entity.setProject($project);
+    	$entity.setActualState(Element.FINAL_STATE);
+    	update($entity);
+    	MergeUpdate $mergeUpdate = new MergeUpdate($entity);
+        $mergeUpdate.setState(MergeUpdate.WITH_CHANGES); 
+        insert($mergeUpdate);
+end
+
+rule "merge attribute abstract type"
+	salience 0
+    when
+        $attribute: Attribute(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == ElementCts.MERGE_STATE, $attributeType : attributeType, $entity : entity)
+       	not (exists ( Attribute(
+       		globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE, attributeType.name==$attributeType.name ) ))
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $entity.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end
+
+rule "merge attribute abstract type2"
+	salience 0
+    when
+        $attribute: Attribute(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == Element.FINAL_STATE, $attributeType : attributeType, $entity : entity)
+       	not (exists ( Attribute(
+       		globalIdentifier == $globalIdentifier, actualState == ElementCts.MERGE_STATE, attributeType.name==$attributeType.name ) ))
+       	$mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $entity.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end
+
+ rule "merge entityAssociation"
+	salience 0
+    when
+        $entityAssociation: EntityAssociation(
+        	$name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        not ( exists (EntityAssociation(
+        	name == $name,  globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) ))
+        $originEntity: Entity (globalIdentifier==$entityAssociation.originEntity.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        $destineEntity: Entity (globalIdentifier==$entityAssociation.destineEntity.globalIdentifier, actualState == Element.FINAL_STATE)
+        idFactory : IdFactory()	
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $originEntity.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end 
+
+ rule "merge entityAssociation 2"
+	salience 0
+    when
+        $entityAssociation: EntityAssociation(
+        	$name : name, $globalIdentifier : globalIdentifier, actualState == Element.FINAL_STATE)
+        not ( exists (EntityAssociation(
+        	name == $name,  globalIdentifier == $globalIdentifier, actualState == actualState == ElementCts.MERGE_STATE) ))
+        $originEntity: Entity (globalIdentifier==$entityAssociation.originEntity.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        $destineEntity: Entity (globalIdentifier==$entityAssociation.destineEntity.globalIdentifier, actualState == Element.FINAL_STATE)
+        idFactory : IdFactory()	
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES, element.globalIdentifier == $originEntity.globalIdentifier)
+    then
+    	$mergeUpdate.setState(MergeUpdate.WITH_CHANGES);
+    	update($mergeUpdate);
+end 
+
+rule "merge update"
+	salience -3
+    when
+        $mergeUpdate: MergeUpdate($element : element, state == MergeUpdate.WITH_CHANGES)
+        $entity: Entity($globalIdentifier: globalIdentifier, globalIdentifier == $element.getGlobalIdentifier(), actualState == ElementCts.MERGE_STATE)
+    then
+    	QueryResults results = drools.getWorkingMemory().getQueryResults("attributesByEntity", $globalIdentifier);
+        for ( QueryResult queryResult : results ) {
+                Attribute $attribute = ( Attribute ) queryResult.get( 0 );
+                $attribute.setActualState(-1);
+                retract($attribute);
+        }
+        
+        results = drools.getWorkingMemory().getQueryResults("associationsByEntity", $globalIdentifier);
+        for ( QueryResult queryResult : results ) {
+                EntityAssociation $entityAssociation = ( EntityAssociation ) queryResult.get( 0 );
+                retract($entityAssociation);
+        }
+        retract($entity); 
+end
+
+rule "merge entity delete entity"
+	salience -3
+    when
+        $mergeUpdate: MergeUpdate($element : element, state == MergeUpdate.WITHOUT_CHANGES)
+        $entity: Entity($globalIdentifier: globalIdentifier, globalIdentifier == $element.getGlobalIdentifier(), actualState == ElementCts.MERGE_STATE)
+    then
+    	
+        retract($entity); 
+end
+
+
+
+
+
+rule "merge update attribute with changes without association"
+	salience -4
+    when
+        $attribute: Attribute(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == ElementCts.MERGE_STATE, $attributeType : attributeType, entityAssociation == null)
+        $entity: Entity (globalIdentifier==$attribute.entity.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        idFactory : IdFactory()
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $entity.globalIdentifier)
+    then
+    	$attribute.setId(idFactory.next($attribute.getType()));
+    	$attribute.setValid(true);
+    	
+    	$attribute.setEntity($entity);
+    	$attribute.setActualState(Element.FINAL_STATE);
+    	update($attribute);
+end
+
+rule "merge update attribute with changes with association"
+	salience -4
+    when
+        $attribute: Attribute(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == ElementCts.MERGE_STATE, $attributeType : attributeType, $entityAssociation : entityAssociation, $entityAssociation != null)
+        $entity: Entity (globalIdentifier==$attribute.entity.globalIdentifier, actualState == Element.FINAL_STATE)	
+        $entityAssociationExist: Entity (globalIdentifier==$entityAssociation.globalIdentifier, actualState == Element.FINAL_STATE) 
+        idFactory : IdFactory()
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $entity.globalIdentifier)
+    then
+    	$attribute.setId(idFactory.next($attribute.getType()));
+    	$attribute.setValid(true);
+    	
+    	$attribute.setEntity($entity);
+    	$attribute.setEntityAssociation($entityAssociationExist);
+    	$attribute.setActualState(Element.FINAL_STATE);
+    	update($attribute);
+end
+
+rule "merge update association with changes"
+	salience -4
+    when
+        $entityAssociation: EntityAssociation(
+        	$name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE)
+        $originEntity: Entity (globalIdentifier==$entityAssociation.originEntity.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        $destineEntity: Entity (globalIdentifier==$entityAssociation.destineEntity.globalIdentifier, actualState == Element.FINAL_STATE)
+        idFactory : IdFactory()
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.globalIdentifier == $originEntity.globalIdentifier)
+    then
+    	$entityAssociation.setId(idFactory.next($entityAssociation.getType()));
+    	$entityAssociation.setValid(true);
+    	
+    	$entityAssociation.setOriginEntity($originEntity);
+    	$entityAssociation.setDestineEntity($destineEntity);
+    	$entityAssociation.setActualState(Element.FINAL_STATE);
+    	update($entityAssociation);
+end
+
+
+
+rule "merge delete merge attribute without changes"
+	salience -20
+    when
+        $attribute: Attribute(
+        	$name : name, $globalIdentifier : globalIdentifier, 
+        	actualState == ElementCts.MERGE_STATE, $attributeType : attributeType, $entity : entity)
+    then
+    	retract($attribute);
+end
+
+rule "merge delete merge association without changes"
+	salience -20
+    when
+        $entityAssociation: EntityAssociation(
+        	$name : name, $globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE, $entity : originEntity)
+        $originEntity: Entity (globalIdentifier==$entityAssociation.originEntity.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        $destineEntity: Entity (globalIdentifier==$entityAssociation.destineEntity.globalIdentifier, actualState == Element.FINAL_STATE)
+    then
+    	retract($entityAssociation);
+end
+
+rule "create merge crud entity" 
+	salience 0
+    when
+        $crudEntity: CrudEntity($globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        not (exists ( CrudEntity(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) ))
+        $entity: Entity (globalIdentifier==$crudEntity.entity.globalIdentifier, actualState == Element.FINAL_STATE)	 
+        idFactory : IdFactory()
+    then
+    	$crudEntity.setId(idFactory.next($crudEntity.getType()));
+    	$crudEntity.setEntity($entity);
+    	$crudEntity.setActualState(Element.FINAL_STATE);
+    	Merges.addElement($crudEntity);
+    	update($crudEntity);
+end
+
+rule "create delete merge crud entity" 
+	salience 0
+    when
+        $crudEntity: CrudEntity($globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        exists ( CrudEntity(globalIdentifier == $globalIdentifier, actualState == Element.FINAL_STATE) )
+    then
+    	retract($crudEntity);
+end
+
+rule "create global entity merge"
+	salience -5
+    when
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES, element.type==Entity.CODE_ENTITY, $globalIdentifier : element.globalIdentifier, $element : element)
+    then
+
+		EntityMerge entityMerge = new EntityMerge();
+		entityMerge.setEntity((Entity) $element);
+		
+    	
+    	QueryResults results = drools.getWorkingMemory().getQueryResults("attributesByEntity", $globalIdentifier);
+    	List<Attribute> attributes = new ArrayList<Attribute>();
+        for ( QueryResult queryResult : results ) {
+                Attribute $attrEntityMergeults("associationsByEntity", $globalIdentifier);
+        List<EntityAssociation> associations = new ArrayList<EntityAssociation>();
+        for ( QueryResult queryResult : results ) {
+                EntityAssociation $entityAssociation = ( EntityAssociation ) queryResult.get( 0 );
+                associations.add($entityAssociation);
+        }
+        entityMerge.setEntityAssociations(associations);
+    	
+    	results = drools.getWorkingMemory().getQueryResults("crudEntity", $globalIdentifier);
+        List<CrudEntity> cruds = new ArrayList<CrudEntity>();
+        if (cruds.size()>0) {
+        	CrudEntity $crudEntity = ( CrudEntity ) results.get(0).get(0);
+        	entityMerge.setCrud($crudEntity);
+        }
+
+		results = drools.getWorkingMemory().getQueryResults("alertsByElement", $globalIdentifier);
+        List<Alert> alerts = new ArrayList<Alert>();
+        if (alerts.size()>0) {
+        	Alert $alert = ( Alert ) results.get(0).get(0);
+        	alerts.add($alert);
+        }
+    	entityMerge.setAlerts(alerts);
+    	
+    	$mergeUpdate.setElement(entityMerge);
+    	update($mergeUpdate);
+    	
+end

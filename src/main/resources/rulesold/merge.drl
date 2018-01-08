@@ -1,0 +1,63 @@
+//created on: Aug 13, 2012
+package com.indra.virtualarchitecture
+
+//list any import classes here.
+
+
+
+//declare any global variables here
+
+import com.indra.virtualarchitecture.Action 
+import com.indra.virtualarchitecture.language.Association
+import com.indra.virtualarchitecture.language.Synonym
+import com.indra.virtualarchitecture.model.Element
+import com.indra.virtualarchitecture.model.MergeUpdate
+import com.indra.virtualarchitecture.model.ElementCts
+import com.indra.virtualarchitecture.model.command.RooCommand
+import com.indra.virtualarchitecture.model.project.Project
+import com.indra.virtualarchitecture.model.project.Workspace
+import com.indra.virtualarchitecture.model.entity.CrudEntity
+import com.indra.virtualarchitecture.model.entity.Entity
+import com.indra.virtualarchitecture.model.entity.Attribute
+import com.indra.virtualarchitecture.model.entity.EntityAssociation
+import com.indra.virtualarchitecture.model.basedatos.DataBase
+import com.indra.virtualarchitecture.model.basedatos.DataBaseConfiguration
+import com.indra.virtualarchitecture.model.basedatos.Provider
+import com.indra.virtualarchitecture.model.type.GenericType
+import com.indra.virtualarchitecture.model.type.Type
+import com.indra.virtualarchitecture.model.type.TypeCts
+import com.indra.virtualarchitecture.model.general.Person
+import com.indra.virtualarchitecture.IdFactory;
+import com.indra.virtualarchitecture.course.Course;
+import com.indra.virtualarchitecture.course.CourseExecution;
+import com.indra.virtualarchitecture.model.command.CommandExecution
+import com.indra.virtualarchitecture.alert.Alert
+import org.drools.QueryResults;
+import org.drools.QueryResult;
+import com.indra.virtualarchitecture.merge.Merges;
+
+rule "delete repeted merge element"
+	salience 10
+    when
+        $element1: Element($globalIdentifier : globalIdentifier, actualState == ElementCts.MERGE_STATE) 
+        $element2: Element(globalIdentifier == $globalIdentifier, hashCode != $element1.hashCode, actualState == ElementCts.MERGE_STATE) 
+    then
+        retract($element2);
+end
+
+rule "send change"
+	salience -10
+    when
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITH_CHANGES)
+    then
+    	Merges.updateElement($mergeUpdate.getElement());
+    	retract($mergeUpdate);
+end
+
+rule "delete change"
+	salience -10
+    when
+        $mergeUpdate : MergeUpdate (state == MergeUpdate.WITHOUT_CHANGES)
+    then
+    	retract($mergeUpdate); 
+end

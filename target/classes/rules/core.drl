@@ -1,0 +1,15 @@
+package rules
+
+
+
+query "errosByGlobalIdentifier" (String $globalIdentifier)
+	errosByGlobalIdentifier : ErrorConcept(parentConceptId==$globalIdentifier)
+end
+
+query "elementByGlobalIdentifier" (String $globalIdentifier)
+	elementByGlobalIdentifier : Element(globalIdentifier==$globalIdentifier)
+end
+	
+query "allElements" ()
+	allElements : Element()
+end
